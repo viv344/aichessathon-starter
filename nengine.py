@@ -53,6 +53,16 @@ MATE = 100_000
 MATE_BOUND = MATE - 2000
 INF = 1_000_000
 
+# Late move reduction table: LMR_TABLE[depth][move number].
+LMR_TABLE = np.zeros((64, 64), dtype=np.int64)
+for _d in range(1, 64):
+    for _m in range(1, 64):
+        LMR_TABLE[_d, _m] = int(0.75 + np.log(_d) * np.log(_m) / 2.25)
+
+# aux (int64 [2, MAX_PLY+2]) rows
+A_STATIC = 0  # static eval at each ply
+A_MOVE = 1  # move played to reach each ply
+
 TT_EXACT = 1
 TT_LOWER = 2
 TT_UPPER = 3
@@ -1082,7 +1092,7 @@ def check_time(ctx, ctxf):
 
 
 @njit(cache=False)
-def score_move(m, tt_m, killers, history, ply, side):
+def score_move(m, tt_m, killers, history, ply, side, counter_m):
     if m == tt_m:
         return 10_000_000
     cap = mv_captured(m)
@@ -1095,6 +1105,8 @@ def score_move(m, tt_m, killers, history, ply, side):
         return 800_000
     if m == killers[ply, 1]:
         return 700_000
+    if m == counter_m:
+        return 600_000
     return history[side, mv_from(m), mv_to(m)]
 
 
@@ -1141,11 +1153,20 @@ def is_repetition(stack, ply, game_keys, n_game):
 
 
 @njit(cache=False)
-def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn):
+def quiesce(
+    stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn, tt_keys, tt_data
+):
     check_time(ctx, ctxf)
     if ctx[C_ABORT]:
         return 0
     pos = stack[ply]
+    key = pos[I_KEY]
+    data = tt_probe(tt_keys, tt_data, key)
+    if data != 0:
+        s = tt_score(data)
+        f = tt_flag(data)
+        if f == TT_EXACT or (f == TT_LOWER and s >= beta) or (f == TT_UPPER and s <= alpha):
+            return s
     stand = eval_pos(pos, acc[ply], nn, use_nn)
     if stand >= beta:
         return stand
@@ -1153,6 +1174,7 @@ def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_
         alpha = stand
     if ply >= MAX_PLY - 1:
         return stand
+    orig_alpha = alpha
 
     moves = movebuf[ply]
     scores = scorebuf[ply]
@@ -1163,6 +1185,7 @@ def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_
             MVV_VALUE[mv_captured(m)] * 10 - MVV_VALUE[mv_piece(m)] // 10 + mv_promo(m) * 100
         )
     best = stand
+    best_move = 0
     for i in range(n):
         m = pick_next(moves, scores, n, i)
         cap = mv_captured(m)
@@ -1174,16 +1197,25 @@ def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_
         if use_nn:
             acc_apply_move(pos, stack[ply + 1], m, acc[ply], acc[ply + 1], nn)
         score = -quiesce(
-            stack, ply + 1, -beta, -alpha, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn
+            stack, ply + 1, -beta, -alpha, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn,
+            tt_keys, tt_data,
         )
         if ctx[C_ABORT]:
             return 0
         if score > best:
             best = score
+            best_move = m
         if score > alpha:
             alpha = score
             if alpha >= beta:
                 break
+    if best >= beta:
+        flag = TT_LOWER
+    elif best <= orig_alpha:
+        flag = TT_UPPER
+    else:
+        flag = TT_EXACT
+    tt_store(tt_keys, tt_data, key, 0, flag, best, best_move)
     return best
 
 
@@ -1205,7 +1237,7 @@ def has_non_pawn(pos, side):
 @njit(cache=False)
 def search(
     stack, ply, depth, alpha, beta, allow_null, ctx, ctxf, tt_keys, tt_data, killers, history,
-    movebuf, scorebuf, game_keys, acc, nn, use_nn,
+    movebuf, scorebuf, game_keys, acc, nn, use_nn, aux, counters,
 ):
     check_time(ctx, ctxf)
     if ctx[C_ABORT]:
@@ -1218,7 +1250,9 @@ def search(
         depth += 1
 
     if depth <= 0:
-        return quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn)
+        return quiesce(
+            stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn, tt_keys, tt_data
+        )
     if ply >= MAX_PLY - 1:
         return eval_pos(pos, acc[ply], nn, use_nn)
 
@@ -1256,10 +1290,15 @@ def search(
     pv_node = beta - alpha > 1
 
     static = eval_pos(pos, acc[ply], nn, use_nn)
+    aux[A_STATIC, ply] = static
+    # Improving: our static eval is better than it was two plies ago (same side to move).
+    improving = ply < 2 or checked or static > aux[A_STATIC, ply - 2]
 
     # Reverse futility pruning: far above beta at low depth.
-    if not pv_node and not checked and depth <= 3 and static - 120 * depth >= beta:
-        return static
+    if not pv_node and not checked and depth <= 3:
+        margin = 120 * depth if improving else 80 * depth
+        if static - margin >= beta:
+            return static
 
     # Null-move pruning.
     if (
@@ -1274,9 +1313,11 @@ def search(
         if use_nn:
             acc_copy(acc[ply], acc[ply + 1])
         r = 2 + depth // 4
+        aux[A_MOVE, ply + 1] = 0
         score = -search(
             stack, ply + 1, depth - 1 - r, -beta, -beta + 1, False, ctx, ctxf, tt_keys,
-            tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+            tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn, aux,
+            counters,
         )
         if ctx[C_ABORT]:
             return 0
@@ -1286,14 +1327,17 @@ def search(
     moves = movebuf[ply]
     scores = scorebuf[ply]
     n = gen_moves(pos, moves, False)
+    prev = aux[A_MOVE, ply]
+    counter_m = counters[side, mv_from(prev), mv_to(prev)] if prev != 0 else 0
     for i in range(n):
-        scores[i] = score_move(moves[i], tt_m, killers, history, ply, side)
+        scores[i] = score_move(moves[i], tt_m, killers, history, ply, side, counter_m)
 
     best_score = -INF
     best_move = 0
     orig_alpha = alpha
     legal = 0
-    futile = not pv_node and not checked and depth <= 2 and static + 150 * depth <= alpha
+    fut_margin = 150 * depth if improving else 100 * depth
+    futile = not pv_node and not checked and depth <= 2 and static + fut_margin <= alpha
 
     for i in range(n):
         m = pick_next(moves, scores, n, i)
@@ -1311,25 +1355,38 @@ def search(
             continue
 
         reduce = 0
-        if depth >= 3 and legal > 3 and not is_cap and not is_promo and not gives_check:
-            reduce = 1 if legal < 8 else 2
-            if pv_node and reduce > 0:
+        if depth >= 3 and legal > 2 and not is_cap and not is_promo and not gives_check:
+            reduce = LMR_TABLE[min(depth, 63), min(legal, 63)]
+            if pv_node:
                 reduce -= 1
+            if not improving:
+                reduce += 1
+            if m == killers[ply, 0] or m == killers[ply, 1] or m == counter_m:
+                reduce -= 1
+            if history[side, mv_from(m), mv_to(m)] > 2000:
+                reduce -= 1
+            if reduce < 0:
+                reduce = 0
+            if reduce > depth - 2:
+                reduce = depth - 2
 
+        aux[A_MOVE, ply + 1] = m
         if legal == 1:
             score = -search(
                 stack, ply + 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys, tt_data,
-                killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+                killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn, aux, counters,
             )
         else:
             score = -search(
                 stack, ply + 1, depth - 1 - reduce, -alpha - 1, -alpha, True, ctx, ctxf,
                 tt_keys, tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+                aux, counters,
             )
             if not ctx[C_ABORT] and score > alpha and (reduce > 0 or score < beta):
                 score = -search(
                     stack, ply + 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys,
                     tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+                    aux, counters,
                 )
         if ctx[C_ABORT]:
             return 0
@@ -1345,6 +1402,8 @@ def search(
                         killers[ply, 1] = killers[ply, 0]
                         killers[ply, 0] = m
                     history[side, mv_from(m), mv_to(m)] += depth * depth
+                    if prev != 0:
+                        counters[side, mv_from(prev), mv_to(prev)] = m
                     if history[side, mv_from(m), mv_to(m)] > 1_000_000:
                         for a in range(64):
                             for b in range(64):
@@ -1367,13 +1426,16 @@ def search(
 @njit(cache=False)
 def search_root(
     stack, depth, alpha, beta, ctx, ctxf, tt_keys, tt_data, killers, history, movebuf,
-    scorebuf, game_keys, root_moves, n_root, root_scores, prev_best, acc, nn, use_nn,
+    scorebuf, game_keys, root_moves, n_root, root_scores, prev_best, acc, nn, use_nn, aux,
+    counters,
 ):
     """One iteration at the root. Returns (best_move, score). Aborts leave ctx[C_ABORT] set."""
     pos = stack[0]
     side = np.int64(pos[I_SIDE])
     for i in range(n_root):
-        root_scores[i] = score_move(root_moves[i], prev_best, killers, history, 0, side)
+        root_scores[i] = score_move(root_moves[i], prev_best, killers, history, 0, side, 0)
+    aux[A_STATIC, 0] = eval_pos(pos, acc[0], nn, use_nn)
+    aux[A_MOVE, 0] = 0
     best_move = root_moves[0]
     best_score = -INF
     for i in range(n_root):
@@ -1381,20 +1443,21 @@ def search_root(
         make_move(pos, stack[1], m)  # root moves are pre-filtered legal
         if use_nn:
             acc_apply_move(pos, stack[1], m, acc[0], acc[1], nn)
+        aux[A_MOVE, 1] = m
         if i == 0:
             score = -search(
                 stack, 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys, tt_data, killers,
-                history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+                history, movebuf, scorebuf, game_keys, acc, nn, use_nn, aux, counters,
             )
         else:
             score = -search(
                 stack, 1, depth - 1, -alpha - 1, -alpha, True, ctx, ctxf, tt_keys, tt_data,
-                killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+                killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn, aux, counters,
             )
             if not ctx[C_ABORT] and score > alpha and score < beta:
                 score = -search(
                     stack, 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys, tt_data,
-                    killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
+                    killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn, aux, counters,
                 )
         if ctx[C_ABORT]:
             return best_move, best_score
@@ -1516,6 +1579,8 @@ class Engine:
         self.root_moves = np.zeros(MAX_MOVES, dtype=np.int64)
         self.root_scores = np.zeros(MAX_MOVES, dtype=np.int64)
         self.tmp = np.zeros(POS_LEN, dtype=np.uint64)
+        self.aux = np.zeros((2, MAX_PLY + 2), dtype=np.int64)
+        self.counters = np.zeros((2, 64, 64), dtype=np.int64)
         self.log: list[str] = []
         # Neural evaluation: off until load_nn() succeeds.
         self.use_nn = 0
@@ -1555,6 +1620,7 @@ class Engine:
         self.tt_data[:] = 0
         self.killers[:] = 0
         self.history[:] = 0
+        self.counters[:] = 0
         self.n_game = 0
 
     def record(self, pos: np.ndarray) -> None:
@@ -1599,6 +1665,7 @@ class Engine:
                 self.stack, depth, alpha, beta, self.ctx, self.ctxf, self.tt_keys, self.tt_data,
                 self.killers, self.history, self.movebuf, self.scorebuf, self.game_keys,
                 self.root_moves, n_root, self.root_scores, best, self.acc, self.nn, self.use_nn,
+                self.aux, self.counters,
             )
             if self.ctx[C_ABORT]:
                 self.log.append(f"time up in depth {depth} nodes {int(self.ctx[C_NODES])}")
