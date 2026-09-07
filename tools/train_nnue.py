@@ -19,6 +19,7 @@ import argparse
 import sys
 import time
 from multiprocessing import Pool
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -98,17 +99,35 @@ def encode_chunk(lines: list[str]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return stm[:k], nstm[:k], target[:k]
 
 
-def load(path: str, limit: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Stream the csv in chunks through a process pool; memory stays at the encoded arrays."""
+def count_lines(path: str, limit: int | None) -> int:
+    n = 0
+    with open(path, "rb") as fh:
+        for _ in fh:
+            n += 1
+            if limit and n >= limit:
+                break
+    return n
+
+
+def load(
+    path: str, limit: int | None, cache: str | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Encode the csv into three arrays, optionally cached on disk as memory-mapped .npy files.
+
+    With a cache the encoded arrays are written chunk by chunk into preallocated files, so
+    memory use stays flat however large the data set is, and later runs skip the encoding.
+    """
     t = time.perf_counter()
-    stms: list[np.ndarray] = []
-    nstms: list[np.ndarray] = []
-    targets: list[np.ndarray] = []
-    total = 0
+    if cache and Path(cache + ".stm.npy").exists():
+        stm = np.load(cache + ".stm.npy", mmap_mode="r")
+        nstm = np.load(cache + ".nstm.npy", mmap_mode="r")
+        target = np.load(cache + ".target.npy", mmap_mode="r")
+        print(f"cached {len(target)} positions", flush=True)
+        return stm, nstm, target
 
     def chunks():
-        nonlocal total
         buf: list[str] = []
+        total = 0
         with open(path) as fh:
             for line in fh:
                 buf.append(line.rstrip("\n"))
@@ -121,6 +140,41 @@ def load(path: str, limit: int | None) -> tuple[np.ndarray, np.ndarray, np.ndarr
         if buf:
             yield buf
 
+    if cache:
+        n = count_lines(path, limit)
+        stm_out = np.lib.format.open_memmap(
+            cache + ".stm.npy", mode="w+", dtype=np.int16, shape=(n, MAX_PIECES)
+        )
+        nstm_out = np.lib.format.open_memmap(
+            cache + ".nstm.npy", mode="w+", dtype=np.int16, shape=(n, MAX_PIECES)
+        )
+        tgt_out = np.lib.format.open_memmap(
+            cache + ".target.npy", mode="w+", dtype=np.float32, shape=(n,)
+        )
+        k = 0
+        with Pool() as pool:
+            for a, b, c in pool.imap(encode_chunk, chunks(), chunksize=1):
+                stm_out[k : k + len(c)] = a
+                nstm_out[k : k + len(c)] = b
+                tgt_out[k : k + len(c)] = c
+                k += len(c)
+        # Positions rejected by the encoder leave a tail; trim by rewriting the header.
+        stm_out.flush()
+        nstm_out.flush()
+        tgt_out.flush()
+        del stm_out, nstm_out, tgt_out
+        for name in ("stm", "nstm", "target"):
+            arr = np.load(f"{cache}.{name}.npy", mmap_mode="r")
+            if len(arr) != k:
+                trimmed = np.array(arr[:k])
+                del arr
+                np.save(f"{cache}.{name}.npy", trimmed)
+        print(f"encoded {k} positions to {cache} in {time.perf_counter() - t:.0f}s", flush=True)
+        return load(path, limit, cache)
+
+    stms: list[np.ndarray] = []
+    nstms: list[np.ndarray] = []
+    targets: list[np.ndarray] = []
     with Pool() as pool:
         for a, b, c in pool.imap(encode_chunk, chunks(), chunksize=1):
             stms.append(a)
@@ -159,17 +213,18 @@ def main() -> None:
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--scale", type=float, default=400.0)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--cache", default=None, help="prefix for cached encoded arrays")
     ap.add_argument("--threads", type=int, default=16)
     args = ap.parse_args()
     torch.set_num_threads(args.threads)
     torch.manual_seed(0)
 
-    stm, nstm, target = load(args.data, args.limit)
+    stm, nstm, target = load(args.data, args.limit, args.cache)
     n = len(target)
     perm = np.random.default_rng(0).permutation(n)
     n_val = min(200_000, n // 20)
     val_idx, train_idx = perm[:n_val], perm[n_val:]
-    tgt_t = torch.from_numpy(target)
+    tgt_t = torch.from_numpy(np.ascontiguousarray(target))
     scale = args.scale
 
     def gather(idx: np.ndarray) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
