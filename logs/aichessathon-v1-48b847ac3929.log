@@ -1,0 +1,165 @@
+[19:21:50Z] building
+[19:21:50Z] upload expands to 24,281 bytes
+[19:21:50Z] docker build
+Sending build context to Docker daemon  26.67kB
+
+Step 1/2 : FROM aichessathon/agent-base:latest
+ ---> eeaf64b96a67
+Step 2/2 : COPY . /agent
+ ---> a6c4c33281c1
+Successfully built a6c4c33281c1
+Successfully tagged aichessathon/agent:1b334056-9440-4eca-b715-4b939781f23c
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+[19:22:12Z] pushed aichessathon.azurecr.io/agents:1b334056-9440-4eca-b715-4b939781f23c
+[19:22:12Z] image aichessathon.azurecr.io/agents@sha256:a6c4c33281c1157670e4bfbf6d66ca9b03b68c18e1388a8120215071cd74f611
+[19:22:12Z] smoke
+[19:22:13Z] your process is suspended while your opponent moves, so anything you compute between your own moves does not run
+[19:22:13Z] smoke game: 20 plies as white from r1bqkb1r/pp3ppp/2np1n2/4p3/4P3/N1N5/PPP2PPP/R1BQKB1R b KQkq - 1 7
+[19:22:30Z] ready in 0.8 s of the 90 s init budget
+[19:22:30Z] played 10 moves, slowest 2.9 s
+[19:22:30Z] game ended draw by ply_cap
+[19:22:30Z] your agent wrote to stderr
+depth 1 score 40 nodes 42 time 1ms best g1f3
+depth 2 score 10 nodes 144 time 5ms best g1f3
+depth 3 score 40 nodes 1149 time 26ms best g1f3
+depth 4 score 10 nodes 2268 time 76ms best g1f3
+depth 5 score 25 nodes 3813 time 112ms best g1f3
+time up at depth 6, nodes 10240
+depth 1 score 10 nodes 94 time 4ms best a3c4
+depth 2 score 10 nodes 641 time 29ms best a3c4
+depth 3 score 20 nodes 3411 time 96ms best a3c4
+depth 4 score 10 nodes 5942 time 199ms best a3c4
+depth 5 score 5 nodes 11659 time 405ms best a3c4
+depth 6 score 3 nodes 47446 time 1645ms best a3c4
+move 1 clock 120000ms budget 2859ms -> a3c4
+depth 1 score 698 nodes 80 time 3ms best c4a5
+depth 2 score 698 nodes 549 time 19ms best c4a5
+depth 3 score 710 nodes 2964 time 102ms best c4a5
+depth 4 score 700 nodes 7872 time 258ms best c4a5
+depth 5 score 699 nodes 20930 time 749ms best c4a5
+depth 6 score 696 nodes 41448 time 1488ms best c4a5
+move 2 clock 118853ms budget 2834ms -> c4a5
+depth 1 score 1060 nodes 105 time 5ms best a5c4
+depth 2 score 1036 nodes 518 time 29ms best a5c4
+depth 3 score 1055 nodes 5100 time 150ms best a5c4
+depth 4 score 1041 nodes 14132 time 479ms best a5c4
+depth 5 score 1050 nodes 28096 time 976ms best a5c4
+depth 6 score 1045 nodes 73306 time 2281ms best a5c4
+move 3 clock 117863ms budget 2869ms -> a5c4
+depth 1 score 1091 nodes 148 time 5ms best c3b5
+depth 2 score 1091 nodes 797 time 29ms best c3b5
+depth 3 score 1080 nodes 6214 time 182ms best c3b5
+depth 4 score 1081 nodes 11755 time 373ms best c4d6
+depth 5 score 1080 nodes 25535 time 863ms best c3b5
+time up at depth 6, nodes 87040
+move 4 clock 116081ms budget 2830ms -> c3b5
+depth 1 score 1162 nodes 104 time 3ms best b5d6
+depth 2 score 1170 nodes 609 time 24ms best b5d6
+depth 3 score 1181 nodes 4687 time 115ms best b5d6
+depth 4 score 1170 nodes 11382 time 385ms best b5d6
+depth 5 score 1169 nodes 30714 time 1031ms best b5d6
+depth 6 score 1180 nodes 70771 time 2269ms best c4d6
+move 5 clock 113718ms budget 2777ms -> c4d6
+depth 1 score 1528 nodes 98 time 2ms best d6f7
+depth 2 score 1528 nodes 521 time 16ms best d6f7
+depth 3 score 1522 nodes 5183 time 123ms best d6f7
+depth 4 score 1531 nodes 14445 time 417ms best d6f7
+depth 5 score 1624 nodes 48979 time 1482ms best d6f7
+move 6 clock 111947ms budget 2794ms -> d6f7
+depth 1 score 1554 nodes 98 time 2ms best f7h8
+depth 2 score 1624 nodes 151 time 4ms best f7h8
+depth 3 score 1624 nodes 3504 time 77ms best f7h8
+depth 4 score 1624 nodes 3712 time 83ms best f7h8
+depth 5 score 1667 nodes 37241 time 1132ms best f7h8
+time up at depth 6, nodes 93184
+move 7 clock 110963ms budget 2831ms -> f7h8
+depth 1 score 1864 nodes 119 time 3ms best d1d6
+depth 2 score 1899 nodes 560 time 21ms best d1d6
+depth 3 score 1967 nodes 7462 time 202ms best d1d6
+depth 4 score 99993 nodes 29086 time 854ms best d1d6
+move 8 clock 108630ms budget 2836ms -> d1d6
+depth 1 score 99993 nodes 95 time 2ms best h8f7
+move 9 clock 108275ms budget 2828ms -> h8f7
+depth 1 score 99993 nodes 102 time 2ms best b5c7
+move 10 clock 108772ms budget 2840ms -> b5c7
+[19:22:30Z] smoke game: 20 plies as black from rnbq1rk1/1pp2pbp/3p1np1/p2Pp3/2P1P3/2N2N1P/PP2BPP1/R1BQK2R b KQ - 0 8
+[19:22:51Z] ready in 0.8 s of the 90 s init budget
+[19:22:51Z] played 10 moves, slowest 2.8 s
+[19:22:51Z] game ended draw by ply_cap
+[19:22:51Z] your agent wrote to stderr
+depth 1 score 40 nodes 42 time 1ms best g1f3
+depth 2 score 10 nodes 144 time 5ms best g1f3
+depth 3 score 40 nodes 1149 time 26ms best g1f3
+depth 4 score 10 nodes 2268 time 75ms best g1f3
+depth 5 score 25 nodes 3813 time 112ms best g1f3
+time up at depth 6, nodes 10240
+depth 1 score 10 nodes 96 time 3ms best b8d7
+depth 2 score -20 nodes 623 time 27ms best b8d7
+depth 3 score -25 nodes 3821 time 124ms best b8d7
+depth 4 score -25 nodes 10246 time 440ms best b8d7
+depth 5 score -25 nodes 23360 time 878ms best c7c6
+depth 6 score -20 nodes 48869 time 1748ms best b8d7
+move 1 clock 120000ms budget 2750ms -> b8d7
+depth 1 score 165 nodes 50 time 1ms best f6e4
+depth 2 score 135 nodes 309 time 13ms best f6e4
+depth 3 score 130 nodes 1849 time 54ms best f6e4
+depth 4 score 120 nodes 4868 time 203ms best f6e4
+depth 5 score 115 nodes 12067 time 424ms best f6e4
+depth 6 score 115 nodes 29528 time 1120ms best f6e4
+move 2 clock 118750ms budget 2724ms -> f6e4
+depth 1 score 430 nodes 72 time 2ms best d6e5
+depth 2 score 402 nodes 313 time 21ms best d6e5
+depth 3 score 406 nodes 3793 time 118ms best d7e5
+depth 4 score 395 nodes 8823 time 352ms best d7e5
+depth 5 score 391 nodes 23905 time 779ms best d7e5
+depth 6 score 386 nodes 53915 time 1755ms best d7e5
+move 3 clock 118129ms budget 2818ms -> d7e5
+depth 1 score 453 nodes 97 time 2ms best c8f5
+depth 2 score 474 nodes 692 time 28ms best c8f5
+depth 3 score 468 nodes 4990 time 150ms best c8f5
+depth 4 score 454 nodes 12974 time 463ms best c8f5
+depth 5 score 439 nodes 40181 time 1472ms best c8f5
+move 4 clock 116873ms budget 2847ms -> c8f5
+depth 1 score 488 nodes 108 time 5ms best a8c8
+depth 2 score 755 nodes 1089 time 44ms best e4g3
+depth 3 score 755 nodes 5122 time 141ms best e4g3
+depth 4 score 755 nodes 8781 time 274ms best e4g3
+depth 5 score 764 nodes 21370 time 661ms best e4g3
+depth 6 score 747 nodes 67605 time 2166ms best e4g3
+move 5 clock 115900ms budget 2826ms -> e4g3
+depth 1 score 1399 nodes 102 time 2ms best f5c2
+depth 2 score 1399 nodes 480 time 17ms best f5c2
+depth 3 score 1399 nodes 5217 time 131ms best f5c2
+depth 4 score 1409 nodes 10630 time 341ms best f5c2
+depth 5 score 1409 nodes 27702 time 886ms best f5c2
+time up at depth 6, nodes 87040
+move 6 clock 114233ms budget 2789ms -> f5c2
+depth 1 score 1712 nodes 113 time 3ms best g3h1
+depth 2 score 1714 nodes 856 time 31ms best e5d7
+depth 3 score 1806 nodes 6864 time 178ms best e5f3
+depth 4 score 1834 nodes 14902 time 445ms best e5c4
+depth 5 score 1843 nodes 35519 time 1107ms best e5c4
+time up at depth 6, nodes 92160
+search failed: AssertionError('push() expects move to be pseudo-legal, but got e5c4 in r4rk1/1pp2pbp/3p2p1/p2P4/1PP5/2N2K1P/P1b3P1/R1B2B1R'), falling back to g8h8
+depth 1 score 1872 nodes 140 time 7ms best c2b1
+depth 2 score 1869 nodes 794 time 38ms best c2b1
+depth 3 score 1872 nodes 6264 time 162ms best c2b1
+depth 4 score 1903 nodes 14756 time 447ms best g3h1
+depth 5 score 1932 nodes 38768 time 1196ms best g3h1
+move 7 clock 109593ms budget 2741ms -> g3h1
+depth 1 score 1932 nodes 75 time 1ms best d8h4
+depth 2 score 1932 nodes 113 time 2ms best d8h4
+depth 3 score 1932 nodes 2904 time 64ms best d8h4
+depth 4 score 1971 nodes 8602 time 253ms best d8h4
+depth 5 score 2077 nodes 44715 time 1427ms best d8h4
+move 8 clock 108895ms budget 2843ms -> d8h4
+depth 1 score 2077 nodes 94 time 2ms best h4g3
+depth 2 score 2077 nodes 154 time 5ms best h4g3
+depth 3 score 2077 nodes 3534 time 77ms best h4g3
+depth 4 score 2077 nodes 3711 time 83ms best h4g3
+depth 5 score 2277 nodes 20451 time 613ms best h4g3
+depth 6 score 2408 nodes 74361 time 2106ms best h4g3
+move 9 clock 107967ms budget 2821ms -> h4g3
+[19:22:51Z] valid
