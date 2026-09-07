@@ -53,7 +53,8 @@ def get_move(fen: str, time_left_ms: int) -> str:
         pos = nengine.pos_from_fen(fen)
         ENGINE.record(pos)
         ENGINE.log = []
-        uci, _score, _depth = ENGINE.think(pos, ms / 1000.0)
+        hard = min(ms * 2.5, max(ms, time_left_ms * 0.25 - SAFETY_MS))
+        uci, _score, _depth = ENGINE.think(pos, ms / 1000.0, hard_s=hard / 1000.0)
         for line in ENGINE.log[-3:]:
             print(line)
         if uci not in legal:

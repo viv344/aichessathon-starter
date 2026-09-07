@@ -846,6 +846,174 @@ def evaluate(pos):
 
 
 # --------------------------------------------------------------------------------------------
+# Neural evaluation (NNUE-style perspective net, see tools/train_nnue.py)
+# --------------------------------------------------------------------------------------------
+# nn = (ft_w int16[768, H], ft_b int16[H], out_w int16[2H], out_meta int64[4] = qa, qb, scale, b)
+
+
+# King zone of the perspective's own king, indexed by relative square (own back rank = 0).
+KING_BUCKET = np.zeros(64, dtype=np.int64)
+for _sq in range(64):
+    _r, _f = divmod(_sq, 8)
+    if _r == 0:
+        KING_BUCKET[_sq] = [0, 0, 1, 2, 3, 4, 5, 5][_f]
+    elif _r == 1:
+        KING_BUCKET[_sq] = 6 if _f < 3 else (7 if _f < 5 else 8)
+    elif _r <= 3:
+        KING_BUCKET[_sq] = 9 if _f < 4 else 10
+    else:
+        KING_BUCKET[_sq] = 11
+N_BUCKETS = 12
+
+
+@njit(cache=False)
+def feat(piece, colour, sq, persp, kb):
+    return kb * 768 + (piece + 6 * (colour ^ persp)) * 64 + (sq ^ (56 * persp))
+
+
+@njit(cache=False)
+def king_bucket_of(pos, persp):
+    ksq = lsb(pos[persp * 6 + KING])
+    return KING_BUCKET[ksq ^ (56 * persp)]
+
+
+@njit(cache=False)
+def acc_refresh_persp(pos, acc, nn, persp):
+    ft_w = nn[0]
+    ft_b = nn[1]
+    h = ft_b.shape[0]
+    kb = king_bucket_of(pos, persp)
+    for j in range(h):
+        acc[persp, j] = ft_b[j]
+    for i in range(12):
+        p = i if i < 6 else i - 6
+        colour = 0 if i < 6 else 1
+        bb = pos[i]
+        while bb:
+            sq = lsb(bb)
+            bb &= bb - ONE
+            f = feat(p, colour, sq, persp, kb)
+            for j in range(h):
+                acc[persp, j] += ft_w[f, j]
+
+
+@njit(cache=False)
+def acc_refresh(pos, acc, nn):
+    acc_refresh_persp(pos, acc, nn, 0)
+    acc_refresh_persp(pos, acc, nn, 1)
+
+
+@njit(cache=False)
+def acc_add_sub(acc, nn, persp, kb, p_add, c_add, sq_add, p_sub, c_sub, sq_sub):
+    ft_w = nn[0]
+    h = ft_w.shape[1]
+    fa = feat(p_add, c_add, sq_add, persp, kb)
+    fs = feat(p_sub, c_sub, sq_sub, persp, kb)
+    for j in range(h):
+        acc[persp, j] += ft_w[fa, j] - ft_w[fs, j]
+
+
+@njit(cache=False)
+def acc_sub(acc, nn, persp, kb, p, c, sq):
+    ft_w = nn[0]
+    h = ft_w.shape[1]
+    fs = feat(p, c, sq, persp, kb)
+    for j in range(h):
+        acc[persp, j] -= ft_w[fs, j]
+
+
+@njit(cache=False)
+def acc_apply_move(src, dst, m, acc_src, acc_dst, nn):
+    """acc_dst = acc_src updated for move m taking position src to dst.
+
+    The mover's own perspective is rebuilt from scratch when its king moves, because the king
+    bucket changes every feature index; the other perspective is always updated incrementally.
+    """
+    h = acc_src.shape[1]
+    side = np.int64(src[I_SIDE])
+    them = 1 - side
+    frm = mv_from(m)
+    to = mv_to(m)
+    piece = mv_piece(m)
+    cap = mv_captured(m)
+    promo = mv_promo(m)
+    flags = mv_flags(m)
+    for persp in range(2):
+        if persp == side and piece == KING:
+            acc_refresh_persp(dst, acc_dst, nn, persp)
+            continue
+        for j in range(h):
+            acc_dst[persp, j] = acc_src[persp, j]
+        kb = king_bucket_of(src, persp)
+        if promo:
+            acc_add_sub(acc_dst, nn, persp, kb, promo, side, to, PAWN, side, frm)
+        else:
+            acc_add_sub(acc_dst, nn, persp, kb, piece, side, to, piece, side, frm)
+        if cap != NO_PIECE:
+            if flags & FLAG_EP:
+                cap_sq = to - 8 if side == WHITE else to + 8
+                acc_sub(acc_dst, nn, persp, kb, PAWN, them, cap_sq)
+            else:
+                acc_sub(acc_dst, nn, persp, kb, cap, them, to)
+        if flags & FLAG_CASTLE:
+            if to == 6:
+                acc_add_sub(acc_dst, nn, persp, kb, ROOK, side, 5, ROOK, side, 7)
+            elif to == 2:
+                acc_add_sub(acc_dst, nn, persp, kb, ROOK, side, 3, ROOK, side, 0)
+            elif to == 62:
+                acc_add_sub(acc_dst, nn, persp, kb, ROOK, side, 61, ROOK, side, 63)
+            else:
+                acc_add_sub(acc_dst, nn, persp, kb, ROOK, side, 59, ROOK, side, 56)
+
+
+@njit(cache=False)
+def acc_copy(acc_src, acc_dst):
+    h = acc_src.shape[1]
+    for persp in range(2):
+        for j in range(h):
+            acc_dst[persp, j] = acc_src[persp, j]
+
+
+@njit(cache=False)
+def evaluate_nn(pos, acc, nn):
+    out_w = nn[2]
+    meta = nn[3]
+    qa = meta[0]
+    qb = meta[1]
+    scale = meta[2]
+    h = acc.shape[1]
+    stm = np.int64(pos[I_SIDE])
+    nstm = 1 - stm
+    total = meta[3]
+    for j in range(h):
+        v = acc[stm, j]
+        if v < 0:
+            v = 0
+        elif v > qa:
+            v = qa
+        total += v * out_w[j]
+        v = acc[nstm, j]
+        if v < 0:
+            v = 0
+        elif v > qa:
+            v = qa
+        total += v * out_w[h + j]
+    score = (total * scale) // (qa * qb)
+    if score > 3000:
+        score = 3000
+    elif score < -3000:
+        score = -3000
+    return score
+
+
+@njit(cache=False)
+def eval_pos(pos, acc, nn, use_nn):
+    if use_nn:
+        return evaluate_nn(pos, acc, nn)
+    return evaluate(pos)
+
+
+# --------------------------------------------------------------------------------------------
 # Search
 # --------------------------------------------------------------------------------------------
 
@@ -973,12 +1141,12 @@ def is_repetition(stack, ply, game_keys, n_game):
 
 
 @njit(cache=False)
-def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf):
+def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn):
     check_time(ctx, ctxf)
     if ctx[C_ABORT]:
         return 0
     pos = stack[ply]
-    stand = evaluate(pos)
+    stand = eval_pos(pos, acc[ply], nn, use_nn)
     if stand >= beta:
         return stand
     if stand > alpha:
@@ -1003,7 +1171,11 @@ def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf):
             continue
         if not make_move(pos, stack[ply + 1], m):
             continue
-        score = -quiesce(stack, ply + 1, -beta, -alpha, ctx, ctxf, movebuf, scorebuf)
+        if use_nn:
+            acc_apply_move(pos, stack[ply + 1], m, acc[ply], acc[ply + 1], nn)
+        score = -quiesce(
+            stack, ply + 1, -beta, -alpha, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn
+        )
         if ctx[C_ABORT]:
             return 0
         if score > best:
@@ -1016,6 +1188,15 @@ def quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf):
 
 
 @njit(cache=False)
+def insufficient_material(pos):
+    # No pawns, rooks or queens and at most one minor piece on the board: nobody can mate.
+    if pos[PAWN] | pos[6 + PAWN] | pos[ROOK] | pos[6 + ROOK] | pos[QUEEN] | pos[6 + QUEEN]:
+        return False
+    minors = pos[KNIGHT] | pos[6 + KNIGHT] | pos[BISHOP] | pos[6 + BISHOP]
+    return popcount(minors) <= 1
+
+
+@njit(cache=False)
 def has_non_pawn(pos, side):
     base = side * 6
     return (pos[base + 1] | pos[base + 2] | pos[base + 3] | pos[base + 4]) != ZERO
@@ -1024,7 +1205,7 @@ def has_non_pawn(pos, side):
 @njit(cache=False)
 def search(
     stack, ply, depth, alpha, beta, allow_null, ctx, ctxf, tt_keys, tt_data, killers, history,
-    movebuf, scorebuf, game_keys,
+    movebuf, scorebuf, game_keys, acc, nn, use_nn,
 ):
     check_time(ctx, ctxf)
     if ctx[C_ABORT]:
@@ -1037,14 +1218,16 @@ def search(
         depth += 1
 
     if depth <= 0:
-        return quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf)
+        return quiesce(stack, ply, alpha, beta, ctx, ctxf, movebuf, scorebuf, acc, nn, use_nn)
     if ply >= MAX_PLY - 1:
-        return evaluate(pos)
+        return eval_pos(pos, acc[ply], nn, use_nn)
 
     # Draws.
     if np.int64(pos[I_HALF]) >= 100:
         return 0
     if is_repetition(stack, ply, game_keys, ctx[C_GAME_KEYS]):
+        return 0
+    if insufficient_material(pos):
         return 0
 
     # Mate distance pruning.
@@ -1072,7 +1255,7 @@ def search(
 
     pv_node = beta - alpha > 1
 
-    static = evaluate(pos)
+    static = eval_pos(pos, acc[ply], nn, use_nn)
 
     # Reverse futility pruning: far above beta at low depth.
     if not pv_node and not checked and depth <= 3 and static - 120 * depth >= beta:
@@ -1088,10 +1271,12 @@ def search(
         and has_non_pawn(pos, side)
     ):
         make_null(pos, stack[ply + 1])
+        if use_nn:
+            acc_copy(acc[ply], acc[ply + 1])
         r = 2 + depth // 4
         score = -search(
             stack, ply + 1, depth - 1 - r, -beta, -beta + 1, False, ctx, ctxf, tt_keys,
-            tt_data, killers, history, movebuf, scorebuf, game_keys,
+            tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
         )
         if ctx[C_ABORT]:
             return 0
@@ -1114,6 +1299,8 @@ def search(
         m = pick_next(moves, scores, n, i)
         if not make_move(pos, stack[ply + 1], m):
             continue
+        if use_nn:
+            acc_apply_move(pos, stack[ply + 1], m, acc[ply], acc[ply + 1], nn)
         legal += 1
         is_cap = mv_captured(m) != NO_PIECE
         is_promo = mv_promo(m) != 0
@@ -1132,17 +1319,17 @@ def search(
         if legal == 1:
             score = -search(
                 stack, ply + 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys, tt_data,
-                killers, history, movebuf, scorebuf, game_keys,
+                killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
             )
         else:
             score = -search(
                 stack, ply + 1, depth - 1 - reduce, -alpha - 1, -alpha, True, ctx, ctxf,
-                tt_keys, tt_data, killers, history, movebuf, scorebuf, game_keys,
+                tt_keys, tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
             )
             if not ctx[C_ABORT] and score > alpha and (reduce > 0 or score < beta):
                 score = -search(
                     stack, ply + 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys,
-                    tt_data, killers, history, movebuf, scorebuf, game_keys,
+                    tt_data, killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
                 )
         if ctx[C_ABORT]:
             return 0
@@ -1180,7 +1367,7 @@ def search(
 @njit(cache=False)
 def search_root(
     stack, depth, alpha, beta, ctx, ctxf, tt_keys, tt_data, killers, history, movebuf,
-    scorebuf, game_keys, root_moves, n_root, root_scores, prev_best,
+    scorebuf, game_keys, root_moves, n_root, root_scores, prev_best, acc, nn, use_nn,
 ):
     """One iteration at the root. Returns (best_move, score). Aborts leave ctx[C_ABORT] set."""
     pos = stack[0]
@@ -1192,20 +1379,22 @@ def search_root(
     for i in range(n_root):
         m = pick_next(root_moves, root_scores, n_root, i)
         make_move(pos, stack[1], m)  # root moves are pre-filtered legal
+        if use_nn:
+            acc_apply_move(pos, stack[1], m, acc[0], acc[1], nn)
         if i == 0:
             score = -search(
                 stack, 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys, tt_data, killers,
-                history, movebuf, scorebuf, game_keys,
+                history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
             )
         else:
             score = -search(
                 stack, 1, depth - 1, -alpha - 1, -alpha, True, ctx, ctxf, tt_keys, tt_data,
-                killers, history, movebuf, scorebuf, game_keys,
+                killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
             )
             if not ctx[C_ABORT] and score > alpha and score < beta:
                 score = -search(
                     stack, 1, depth - 1, -beta, -alpha, True, ctx, ctxf, tt_keys, tt_data,
-                    killers, history, movebuf, scorebuf, game_keys,
+                    killers, history, movebuf, scorebuf, game_keys, acc, nn, use_nn,
                 )
         if ctx[C_ABORT]:
             return best_move, best_score
@@ -1328,6 +1517,38 @@ class Engine:
         self.root_scores = np.zeros(MAX_MOVES, dtype=np.int64)
         self.tmp = np.zeros(POS_LEN, dtype=np.uint64)
         self.log: list[str] = []
+        # Neural evaluation: off until load_nn() succeeds.
+        self.use_nn = 0
+        self.hidden = 8
+        self.nn = (
+            np.zeros((N_BUCKETS * 768, self.hidden), dtype=np.int16),
+            np.zeros(self.hidden, dtype=np.int16),
+            np.zeros(2 * self.hidden, dtype=np.int16),
+            np.array([255, 64, 400, 0], dtype=np.int64),
+        )
+        self.acc = np.zeros((MAX_PLY + 2, 2, self.hidden), dtype=np.int32)
+
+    def load_nn(self, path: str) -> None:
+        d = np.load(path)
+        ft_w = np.ascontiguousarray(d["ft_w"], dtype=np.int16)
+        if ft_w.shape[0] != N_BUCKETS * 768:
+            raise ValueError(f"weights have {ft_w.shape[0]} features, want {N_BUCKETS * 768}")
+        ft_b = np.ascontiguousarray(d["ft_b"], dtype=np.int16)
+        out_w = np.ascontiguousarray(d["out_w"], dtype=np.int16)
+        meta = np.array(
+            [int(d["qa"]), int(d["qb"]), int(d["scale"]), int(d["out_b"])], dtype=np.int64
+        )
+        self.hidden = ft_w.shape[1]
+        self.nn = (ft_w, ft_b, out_w, meta)
+        self.acc = np.zeros((MAX_PLY + 2, 2, self.hidden), dtype=np.int32)
+        self.use_nn = 1
+
+    def evaluate(self, pos: np.ndarray) -> int:
+        """Static evaluation of a position with whichever evaluator is active."""
+        if self.use_nn:
+            acc_refresh(pos, self.acc[0], self.nn)
+            return int(evaluate_nn(pos, self.acc[0], self.nn))
+        return int(evaluate(pos))
 
     def new_game(self) -> None:
         self.tt_keys[:] = 0
@@ -1341,10 +1562,19 @@ class Engine:
             self.game_keys[self.n_game] = pos[I_KEY]
             self.n_game += 1
 
-    def think(self, pos: np.ndarray, budget_s: float, max_depth: int = 60) -> tuple[str, int, int]:
-        """Return (uci, score, depth) for the best move found within budget_s seconds."""
+    def think(
+        self, pos: np.ndarray, budget_s: float, max_depth: int = 60, hard_s: float | None = None
+    ) -> tuple[str, int, int]:
+        """Return (uci, score, depth) for the best move found.
+
+        budget_s is the soft target: no new iteration starts once a fraction of it is spent,
+        the fraction growing when the best move just changed or the score fell. hard_s is the
+        deadline at which the search is aborted wherever it is.
+        """
         start = time.perf_counter()
         self.stack[0] = pos
+        if self.use_nn:
+            acc_refresh(pos, self.acc[0], self.nn)
         n_root = legal_moves(pos, self.root_moves, self.tmp)
         if n_root == 0:
             raise ValueError("no legal moves")
@@ -1356,7 +1586,7 @@ class Engine:
         self.ctx[:] = 0
         self.ctx[C_NODE_LIMIT] = 1 << 62
         self.ctx[C_GAME_KEYS] = self.n_game
-        self.ctxf[0] = start + budget_s
+        self.ctxf[0] = start + (hard_s if hard_s is not None else budget_s)
 
         best = int(self.root_moves[0])
         best_score = 0
@@ -1368,7 +1598,7 @@ class Engine:
             m, score = search_root(
                 self.stack, depth, alpha, beta, self.ctx, self.ctxf, self.tt_keys, self.tt_data,
                 self.killers, self.history, self.movebuf, self.scorebuf, self.game_keys,
-                self.root_moves, n_root, self.root_scores, best,
+                self.root_moves, n_root, self.root_scores, best, self.acc, self.nn, self.use_nn,
             )
             if self.ctx[C_ABORT]:
                 self.log.append(f"time up in depth {depth} nodes {int(self.ctx[C_NODES])}")
@@ -1382,6 +1612,7 @@ class Engine:
             if score >= beta:
                 beta = INF
                 continue
+            unstable = (m != best and completed > 0) or score < best_score - 30
             best, best_score, completed = m, score, depth
             elapsed = time.perf_counter() - start
             self.log.append(
@@ -1390,7 +1621,7 @@ class Engine:
             )
             if abs(score) >= MATE_BOUND:
                 break
-            if elapsed > budget_s * 0.4:
+            if elapsed > budget_s * (0.8 if unstable else 0.4):
                 break
             depth += 1
             alpha, beta = score - window, score + window
