@@ -1,0 +1,95 @@
+[20:49:34Z] building
+[20:49:35Z] upload expands to 76,225 bytes
+[20:49:35Z] docker build
+Sending build context to Docker daemon  80.94kB
+
+Step 1/2 : FROM aichessathon/agent-base:latest
+ ---> eeaf64b96a67
+Step 2/2 : COPY . /agent
+ ---> 31595d5d9a21
+Successfully built 31595d5d9a21
+Successfully tagged aichessathon/agent:ac93ddfc-6f06-4450-9a95-22f690b654e2
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+[20:50:05Z] pushed aichessathon.azurecr.io/agents:ac93ddfc-6f06-4450-9a95-22f690b654e2
+[20:50:05Z] image aichessathon.azurecr.io/agents@sha256:31595d5d9a21332b81a1f8019ead90ee7e44ad0d2d7f1a1af3ea8d9b80de292c
+[20:50:05Z] smoke
+[20:50:05Z] your process is suspended while your opponent moves, so anything you compute between your own moves does not run
+[20:50:05Z] smoke game: 20 plies as white from rnbqk2r/pp2nppp/4p3/2ppP3/3P4/P1P5/2P2PPP/1RBQKBNR b Kkq - 2 7
+[20:50:52Z] ready in 35.3 s of the 90 s init budget
+[20:50:52Z] played 8 moves, slowest 2.4 s
+[20:50:52Z] game ended white by checkmate
+[20:50:52Z] your agent wrote to stderr
+init 34.0s
+depth 11 score 70 nodes 1344782 time 479ms best g1f3
+depth 12 score 65 nodes 2565765 time 972ms best g1f3
+depth 13 score 57 nodes 5847584 time 2394ms best g1f3
+move 1 clock 120000ms budget 2859ms used 2394ms -> g1f3
+depth 11 score 98 nodes 942118 time 417ms best f1b5
+depth 12 score 98 nodes 1657120 time 738ms best f1b5
+depth 13 score 91 nodes 3489704 time 1628ms best f1b5
+move 2 clock 118104ms budget 2817ms used 1628ms -> f1b5
+depth 12 score 709 nodes 1553685 time 660ms best b5d7
+depth 13 score 711 nodes 2865968 time 1091ms best b5d7
+depth 14 score 707 nodes 5107458 time 1833ms best b5d7
+move 3 clock 116973ms budget 2793ms used 1834ms -> b5d7
+depth 10 score 783 nodes 972923 time 363ms best d4c5
+depth 11 score 784 nodes 1818690 time 661ms best d4c5
+depth 12 score 783 nodes 3679023 time 1295ms best d4c5
+move 4 clock 115639ms budget 2878ms used 1295ms -> d4c5
+depth 12 score 909 nodes 1705074 time 674ms best c3c4
+depth 13 score 897 nodes 2289079 time 1006ms best c3c4
+depth 14 score 900 nodes 3122926 time 1492ms best c3c4
+move 5 clock 114842ms budget 2921ms used 1493ms -> c3c4
+depth 11 score 1276 nodes 1179024 time 829ms best f3d4
+depth 12 score 1272 nodes 1658807 time 1084ms best f3d4
+depth 13 score 1283 nodes 2354479 time 1400ms best f3d4
+move 6 clock 113849ms budget 2898ms used 1401ms -> f3d4
+depth 1 score 1045 nodes 135 time 0ms best e1g1
+depth 2 score 99997 nodes 515 time 0ms best d4c6
+move 7 clock 112947ms budget 2939ms used 1ms -> d4c6
+depth 1 score 99999 nodes 125 time 0ms best d1d6
+move 8 clock 113446ms budget 2951ms used 1ms -> d1d6
+[20:50:52Z] smoke game: 20 plies as black from rnbqkb1r/pp1n1ppp/4p3/3pP3/3Q1P2/2N1B3/PPP3PP/R3KBNR b KQkq - 0 7
+[20:51:27Z] ready in 24.8 s of the 90 s init budget
+[20:51:27Z] played 10 moves, slowest 2.0 s
+[20:51:27Z] game ended black by checkmate
+[20:51:27Z] your agent wrote to stderr
+init 23.9s
+depth 11 score 35 nodes 1310851 time 451ms best b8c6
+depth 12 score 43 nodes 2286143 time 787ms best b8c6
+depth 13 score 40 nodes 4136827 time 1422ms best b8c6
+move 1 clock 120000ms budget 2859ms used 1423ms -> b8c6
+depth 10 score 49 nodes 876398 time 330ms best f8c5
+depth 11 score 43 nodes 1881721 time 708ms best f8c5
+depth 12 score 52 nodes 3593401 time 1364ms best d7c5
+move 2 clock 119075ms budget 2839ms used 1365ms -> d7c5
+depth 12 score 978 nodes 967754 time 378ms best c5d3
+depth 13 score 985 nodes 1698709 time 654ms best c5d3
+depth 14 score 982 nodes 3135697 time 1211ms best c5d3
+move 3 clock 118209ms budget 2820ms used 1211ms -> c5d3
+depth 10 score 1224 nodes 507875 time 202ms best d3b2
+depth 11 score 1271 nodes 2371915 time 944ms best d3b2
+depth 12 score 1281 nodes 2949533 time 1200ms best d3b2
+move 4 clock 117497ms budget 2861ms used 1201ms -> d3b2
+depth 10 score 1531 nodes 1528976 time 688ms best d5d4
+depth 11 score 1526 nodes 2054326 time 918ms best d5d4
+depth 12 score 1530 nodes 3751708 time 1677ms best d5d4
+move 5 clock 116795ms budget 2904ms used 1677ms -> d5d4
+depth 10 score 2043 nodes 748909 time 376ms best d8g5
+depth 11 score 2066 nodes 1678643 time 856ms best d8g5
+depth 12 score 2076 nodes 3800691 time 1971ms best d8g5
+move 6 clock 115616ms budget 2878ms used 1972ms -> d8g5
+depth 2 score 2124 nodes 350 time 0ms best c6e5
+depth 3 score 2124 nodes 893 time 1ms best c6e5
+depth 4 score 99993 nodes 1056 time 1ms best g5e3
+move 7 clock 114144ms budget 2905ms used 2ms -> g5e3
+depth 1 score 99993 nodes 118 time 0ms best e6f5
+move 8 clock 114641ms budget 2916ms used 1ms -> e6f5
+depth 1 score 2016 nodes 135 time 0ms best f8e7
+depth 2 score 99997 nodes 195 time 0ms best f8e7
+move 9 clock 115139ms budget 2991ms used 1ms -> f8e7
+depth 1 score 99999 nodes 112 time 0ms best g7g6
+move 10 clock 115637ms budget 3003ms used 1ms -> g7g6
+[20:51:27Z] valid
