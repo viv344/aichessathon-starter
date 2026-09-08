@@ -1047,10 +1047,11 @@ def tt_probe(tt_keys, tt_data, key):
 @njit(cache=False)
 def tt_store(tt_keys, tt_data, key, depth, flag, score, move):
     idx = np.int64(key & TT_MASK)
-    # Depth-preferred replacement, but always replace a different position's entry.
+    # Same position: never let a shallower search overwrite a deeper result. A different
+    # position always replaces (the table is large and always-replace ages entries for free).
     if tt_keys[idx] == key:
         old_depth = (tt_data[idx] >> 28) & 255
-        if old_depth > depth and flag != TT_EXACT:
+        if old_depth > depth:
             return
     tt_keys[idx] = key
     tt_data[idx] = (

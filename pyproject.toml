@@ -25,6 +25,7 @@ explicit = true
 dev = ["mypy>=1.18", "ruff>=0.14"]
 
 [tool.ruff]
+extend-exclude = ["cand", "versions"]
 line-length = 100
 target-version = "py312"
 
