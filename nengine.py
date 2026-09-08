@@ -996,13 +996,13 @@ def evaluate_nn(pos, acc, nn):
     nstm = 1 - stm
     total = meta[3]
     for j in range(h):
-        v = acc[stm, j]
+        v = np.int64(acc[stm, j])
         if v < 0:
             v = 0
         elif v > qa:
             v = qa
         total += v * out_w[j]
-        v = acc[nstm, j]
+        v = np.int64(acc[nstm, j])
         if v < 0:
             v = 0
         elif v > qa:
@@ -1290,8 +1290,9 @@ def search(
 
     pv_node = beta - alpha > 1
 
-    static = eval_pos(pos, acc[ply], nn, use_nn)
-    aux[A_STATIC, ply] = static
+    # In check the static eval is not used for pruning, so skip the evaluation.
+    static = 0 if checked else eval_pos(pos, acc[ply], nn, use_nn)
+    aux[A_STATIC, ply] = static if not checked else aux[A_STATIC, ply - 2] if ply >= 2 else 0
     # Improving: our static eval is better than it was two plies ago (same side to move).
     improving = ply < 2 or checked or static > aux[A_STATIC, ply - 2]
 
@@ -1592,7 +1593,7 @@ class Engine:
             np.zeros(2 * self.hidden, dtype=np.int16),
             np.array([255, 64, 400, 0], dtype=np.int64),
         )
-        self.acc = np.zeros((MAX_PLY + 2, 2, self.hidden), dtype=np.int32)
+        self.acc = np.zeros((MAX_PLY + 2, 2, self.hidden), dtype=np.int16)
 
     def load_nn(self, path: str) -> None:
         d = np.load(path)
@@ -1606,7 +1607,7 @@ class Engine:
         )
         self.hidden = ft_w.shape[1]
         self.nn = (ft_w, ft_b, out_w, meta)
-        self.acc = np.zeros((MAX_PLY + 2, 2, self.hidden), dtype=np.int32)
+        self.acc = np.zeros((MAX_PLY + 2, 2, self.hidden), dtype=np.int16)
         self.use_nn = 1
 
     def evaluate(self, pos: np.ndarray) -> int:
